@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+   <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>IMF CCTV</title>
+      <style>
+         body {
+         margin: 0;
+         font-family: monospace;
+         background: black;
+         color: white;
+         font-size: 42px;
+         overflow: hidden;
+         }
+         .live-indicator {
+         color: red;
+         font-weight: bold;
+         animation: blink 3s infinite;
+         }
+         @keyframes blink {
+         0%, 50%, 100% {
+         opacity: 1;
+         }
+         25%, 75% {
+         opacity: 0;
+         }
+         }
+         .bottom-bar {
+         position: absolute;
+         bottom: 20px;
+         left: 20px;
+         right: 20px;
+         display: flex;
+         justify-content: space-between;
+         }
+         #utc-time {
+         position: absolute;
+         top: 20px;
+         right: 20px;
+         }
+      </style>
+   </head>
+   <body>
+      <div class="live-indicator" style="position: absolute; top: 20px; left: 20px;">● LIVE CCTV</div>
+      <div id="utc-time">--:--:-- UTC</div>
+      <div class="bottom-bar">
+         <div>TVL: <span id="tvl">Loading...</span></div>
+         <div>FDV: <span id="imf-market-cap">Loading...</span></div>
+      </div>
+      </div>
+      <script>
+         // === UTC Time Display ===
+         
+         function updateTime() {
+           const now = new Date();
+           const utcString = now.toUTCString().split(" ").slice(4, 5) + ' ' + now.toUTCString().split(" ").slice(1, 4).join(" ");
+           document.getElementById("utc-time").textContent = utcString + ' UTC';
+         }
+         setInterval(updateTime, 1000);
+         updateTime();
+         
+         // === IMF Token FDV from Dexscreener ===
+         
+         async function fetchIMFFDV() {
+           try {
+             const response = await fetch('https://api.dexscreener.com/latest/dex/pairs/ethereum/0x59d813c1d0266278e2f5f146c0e222a6cfea83df');
+             const data = await response.json();
+             const pair = data.pairs[0];
+             const fdv = parseFloat(pair.fdv).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+             document.getElementById('imf-market-cap').textContent = fdv;
+           } catch (error) {
+             console.error('Error fetching $IMF FDV:', error);
+             document.getElementById('imf-market-cap').textContent = 'N/A';
+           }
+         }
+         fetchIMFFDV();
+         setInterval(fetchIMFFDV, 60000);
+         
+         // === Total Value Locked (TVL) Calculation ===
+         
+         const markets = [
+           {
+             id: "0x3f1d5c88c72432b04f2074499fe217468af49ddaa98bcb6ec80b08f76a82c6ec",
+             decimals: 18,
+             dexscreener: "https://api.dexscreener.com/latest/dex/pairs/ethereum/0xc2eab7d33d3cb97692ecb231a5d0e4a649cb539d"
+           },
+           {
+             id: "0x5ffdf15c5a4d7c6affb3f12634eeda1a20e60b92c0eb547f61754f656b55841e",
+             decimals: 18,
+             dexscreener: "https://api.dexscreener.com/latest/dex/pairs/ethereum/0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+           }
+         ];
+         
+         const extraLiquidityPools = [
+           "https://api.dexscreener.com/latest/dex/pairs/ethereum/0x05B5dba037afa4BBaFacA15bF9F6BFaaad183Fe6",
+           "https://api.dexscreener.com/latest/dex/pairs/ethereum/0x850e09EFF92CB8A36c3A8E0c808E2D07cD8744A0"
+         ];
+         
+         // --- Fetch market data from Morpho ---
+         
+         async function fetchMarketData(marketId) {
+           const query = `
+             query {
+               marketByUniqueKey(uniqueKey: "${marketId}", chainId: 1) {
+                 state { collateralAssets supplyAssetsUsd }
+               }
+             }
+           `;
+           const res = await fetch('https://blue-api.morpho.org/graphql', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ query })
+           });
+           const { data } = await res.json();
+           return data.marketByUniqueKey.state;
+         }
+         
+         // --- Fetch USD price from Dexscreener ---
+         
+         async function fetchDexPrice(url) {
+           const res = await fetch(url);
+           const data = await res.json();
+           return parseFloat(data.pair.priceUsd);
+         }
+         
+         // --- Fetch USD liquidity from Dexscreener ---
+         
+         async function fetchDexLiquidity(url) {
+           const res = await fetch(url);
+           const data = await res.json();
+           return parseFloat(data.pair.liquidity.usd);
+         }
+         
+         // --- Convert raw units to decimal ---
+         
+         function formatUnits(value, decimals) {
+           if (!value) return 0;
+           return Number(value) / (10 ** decimals);
+         }
+         
+         // --- Fetch and render Total Value Locked ---
+         
+         async function fetchTVL() {
+           let total = 0;
+           let errors = [];
+         
+           // Sum market values
+           for (const m of markets) {
+             try {
+               const state = await fetchMarketData(m.id);
+               const priceUsd = await fetchDexPrice(m.dexscreener);
+               const collateral = formatUnits(state.collateralAssets, m.decimals);
+               const collateralUsd = collateral * priceUsd;
+               const supplyAssetsUsd = Number(state.supplyAssetsUsd) || 0;
+               total += collateralUsd + supplyAssetsUsd;
+             } catch (e) {
+               errors.push(`Market error: ${e}`);
+               console.error("Market fetch error", e);
+             }
+           }
+         
+           // Add liquidity from extra pools
+           for (const url of extraLiquidityPools) {
+             try {
+               const liquidityUsd = await fetchDexLiquidity(url);
+               total += liquidityUsd;
+             } catch (e) {
+               errors.push(`Liquidity error: ${e}`);
+               console.error("Liquidity fetch error", e);
+             }
+           }
+         
+           document.getElementById('tvl').textContent = 
+             "$" + total.toLocaleString(undefined, {maximumFractionDigits: 0}) +
+             (errors.length ? "\nSome data failed to load. See console for details." : "");
+         }
+         
+         fetchTVL();
+         setInterval(fetchTVL, 60000); // Refresh TVL every 60 seconds
+         
+               
+      </script>
+   </body>
+</html>
