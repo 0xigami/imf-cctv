@@ -26,29 +26,28 @@
          opacity: 0;
          }
          }
-         .bottom-bar {
+         #tvl-container {
          position: absolute;
-         bottom: 20px;
-         left: 20px;
+         top: 20px;
          right: 20px;
-         display: flex;
-         justify-content: space-between;
          }
          #utc-time {
          position: absolute;
-         top: 20px;
+         bottom: 20px;
+         left: 20px;
+         }
+         #fdv-container {
+         position: absolute;
+         bottom: 20px;
          right: 20px;
          }
       </style>
    </head>
    <body>
       <div class="live-indicator" style="position: absolute; top: 20px; left: 20px;">● LIVE CCTV</div>
+      <div id="tvl-container">TVL: <span id="tvl">Loading...</span></div>
       <div id="utc-time">--:--:-- UTC</div>
-      <div class="bottom-bar">
-         <div>TVL: <span id="tvl">Loading...</span></div>
-         <div>FDV: <span id="imf-market-cap">Loading...</span></div>
-      </div>
-      </div>
+      <div id="fdv-container">FDV: <span id="imf-market-cap">Loading...</span></div>
       <script>
          // === UTC Time Display ===
          
@@ -178,8 +177,6 @@
          
          fetchTVL();
          setInterval(fetchTVL, 60000); // Refresh TVL every 60 seconds
-         
-               
       </script>
    </body>
 </html>
